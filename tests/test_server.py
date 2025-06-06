@@ -4,40 +4,43 @@ from unittest.mock import Mock, patch
 
 from fastmcp import FastMCP
 
-from pre_commit_mcp.server import create_server, main
+from pre_commit_mcp.server import main, mcp
 
 
-class TestCreateServer:
-    """Test server creation functionality."""
+class TestServer:
+    """Test server functionality."""
 
-    def test_create_server_returns_fastmcp_instance(self) -> None:
-        """Test that create_server returns a FastMCP instance."""
-        server = create_server()
-        assert isinstance(server, FastMCP)
+    def test_mcp_instance_is_fastmcp(self) -> None:
+        """Test that mcp is a FastMCP instance."""
+        assert isinstance(mcp, FastMCP)
 
-    def test_create_server_has_correct_name(self) -> None:
-        """Test that server is created with correct name."""
-        server = create_server()
-        assert server.name == "pre-commit-server"
+    def test_mcp_has_correct_name(self) -> None:
+        """Test that server has correct name."""
+        assert mcp.name == "pre-commit-server"
 
-    @patch("pre_commit_mcp.server.PreCommitTool")
-    def test_create_server_registers_precommit_tool(self, mock_tool_class: Mock) -> None:
-        """Test that pre-commit tool is registered with the server."""
-        mock_tool_instance = Mock()
-        mock_tool_instance.pre_commit_run = Mock()
-        mock_tool_class.return_value = mock_tool_instance
+    def test_mcp_has_registered_tool(self) -> None:
+        """Test that the pre-commit tool is registered."""
+        # Check that the tool is in the server's tool manager
+        tool_names = list(mcp._tool_manager._tools.keys())
+        assert "pre_commit_run_tool" in tool_names
 
-        with patch.object(FastMCP, "add_tool") as mock_add_tool:
-            server = create_server()
-            mock_add_tool.assert_called_once_with(mock_tool_instance.pre_commit_run)
-
-    @patch("pre_commit_mcp.server.create_server")
-    def test_main_creates_and_runs_server(self, mock_create_server: Mock) -> None:
-        """Test that main function creates and runs server."""
-        mock_server = Mock()
-        mock_create_server.return_value = mock_server
-
+    @patch.object(FastMCP, "run")
+    def test_main_runs_server(self, mock_run: Mock) -> None:
+        """Test that main function runs the server."""
         main()
+        mock_run.assert_called_once()
 
-        mock_create_server.assert_called_once()
-        mock_server.run.assert_called_once()
+    def test_tool_function_exists(self) -> None:
+        """Test that the decorated tool function exists and is callable."""
+        # The decorated function should be accessible in the tool manager
+        tool = mcp._tool_manager._tools["pre_commit_run_tool"]
+        assert tool is not None
+        assert tool.name == "pre_commit_run_tool"
+
+        # Check the function signature has the expected parameter by inspecting the tool's fn attribute
+        assert hasattr(tool, "fn")
+        import inspect
+
+        sig = inspect.signature(tool.fn)
+        assert "force_non_git" in sig.parameters
+        assert sig.parameters["force_non_git"].default is False

@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "pre-commit-mcp"
 version = "0.1.0"
 description = "MCP server for pre-commit integration with Claude"
-authors = [{name = "Stuart Swerdloff"}]
+authors = [{name = "Stuart Swerdloff", email = "sjswerdloff@gmail.com"}]
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.12"
