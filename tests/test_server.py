@@ -37,10 +37,9 @@ class TestServer:
         assert tool is not None
         assert tool.name == "pre_commit_run_tool"
 
-        # Check the function signature has the expected parameter by inspecting the tool's fn attribute
+        # Check the function signature - should have no parameters
         assert hasattr(tool, "fn")
         import inspect
 
         sig = inspect.signature(tool.fn)
-        assert "force_non_git" in sig.parameters
-        assert sig.parameters["force_non_git"].default is False
+        assert len(sig.parameters) == 0  # No parameters expected

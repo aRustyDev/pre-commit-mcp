@@ -11,12 +11,9 @@ from typing import Any
 TIMEOUT_SECONDS = 60
 
 
-async def pre_commit_run(force_non_git: bool = False) -> dict[str, Any]:
+async def pre_commit_run() -> dict[str, Any]:
     """
     Run pre-commit on staged files and return structured output.
-
-    Args:
-        force_non_git: Override git repository requirement
 
     Returns:
         Structured output with status, summary, and details
@@ -25,10 +22,10 @@ async def pre_commit_run(force_non_git: bool = False) -> dict[str, Any]:
 
     try:
         # Check for git repository
-        if not force_non_git and not _is_git_repository():
+        if not _is_git_repository():
             return {
                 "status": "system_error",
-                "error": "Not a git repository. Use force_non_git=True to override.",
+                "error": "Git repository not initialized. Please run 'git init' to initialize a repository.",
                 "execution_time": time.time() - start_time,
             }
 
@@ -114,20 +111,26 @@ async def _parse_precommit_output(returncode: int, stdout: str, stderr: str, exe
     # Clean output (remove ANSI color codes)
     clean_stdout = _strip_ansi_codes(stdout)
     clean_stderr = _strip_ansi_codes(stderr)
+    
+    # Extract warnings and info messages
+    warnings = _extract_warnings_and_info(clean_stdout)
 
     if returncode == 0:
         # Success case
-        return {
+        result = {
             "status": "success",
             "summary": _extract_summary(clean_stdout),
             "execution_time": execution_time,
             "modified_files": await _get_modified_files(),
         }
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
     elif returncode == 1:
         # Hooks failed
         failures = _extract_failures(clean_stdout)
-        return {
+        result = {
             "status": "hooks_failed",
             "summary": _extract_summary(clean_stdout),
             "failures": failures,
@@ -135,6 +138,9 @@ async def _parse_precommit_output(returncode: int, stdout: str, stderr: str, exe
             "modified_files": await _get_modified_files(),
             "context_output": clean_stdout[:2000],  # First 2000 chars for context
         }
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
     else:
         # System error
@@ -153,19 +159,35 @@ def _strip_ansi_codes(text: str) -> str:
     return ansi_escape.sub("", text)
 
 
+def _extract_warnings_and_info(output: str) -> list[str]:
+    """Extract warning and info messages from pre-commit output."""
+    messages = []
+    lines = output.split("\n")
+    
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[WARNING]") or stripped.startswith("[INFO]"):
+            messages.append(stripped)
+    
+    return messages
+
+
 def _extract_summary(output: str) -> dict[str, int]:
     """Extract summary statistics from pre-commit output."""
     lines = output.split("\n")
     hooks_passed = 0
     hooks_failed = 0
+    hooks_skipped = 0
 
     for line in lines:
         if "Passed" in line or "✓" in line or "PASSED" in line:
             hooks_passed += 1
         elif "Failed" in line or "✗" in line or "FAILED" in line:
             hooks_failed += 1
+        elif "Skipped" in line or "SKIPPED" in line or "(no files to check)" in line:
+            hooks_skipped += 1
 
-    return {"hooks_passed": hooks_passed, "hooks_failed": hooks_failed}
+    return {"hooks_passed": hooks_passed, "hooks_failed": hooks_failed, "hooks_skipped": hooks_skipped}
 
 
 def _extract_failures(output: str) -> list[dict[str, Any]]:

@@ -8,6 +8,7 @@ import pytest
 from pre_commit_mcp.tools import (
     _extract_failures,
     _extract_summary,
+    _extract_warnings_and_info,
     _get_modified_files,
     _has_precommit_config,
     _is_git_repository,
@@ -57,10 +58,46 @@ class TestUtilityFunctions:
 end-of-file-fixer....................................................Passed
 check-yaml...........................................................Passed
 """
-
+        
         summary = _extract_summary(output)
         assert summary["hooks_passed"] == 3
         assert summary["hooks_failed"] == 0
+        assert summary["hooks_skipped"] == 0
+
+    def test_extract_summary_with_skipped(self) -> None:
+        """Test summary extraction with skipped hooks."""
+        output = """trailing-whitespace.................................................Passed
+check-yaml...........................................(no files to check)Skipped
+ruff.................................................(no files to check)Skipped
+"""
+        
+        summary = _extract_summary(output)
+        assert summary["hooks_passed"] == 1
+        assert summary["hooks_failed"] == 0
+        assert summary["hooks_skipped"] == 2
+
+    def test_extract_warnings_and_info(self) -> None:
+        """Test warning and info message extraction."""
+        output = """[WARNING] Unstaged files detected.
+[INFO] Stashing unstaged files to /tmp/patch123.txt
+trailing-whitespace.................................................Passed
+[INFO] Restored changes from /tmp/patch123.txt
+"""
+        
+        warnings = _extract_warnings_and_info(output)
+        assert len(warnings) == 3
+        assert warnings[0] == "[WARNING] Unstaged files detected."
+        assert warnings[1] == "[INFO] Stashing unstaged files to /tmp/patch123.txt"
+        assert warnings[2] == "[INFO] Restored changes from /tmp/patch123.txt"
+
+    def test_extract_warnings_and_info_none(self) -> None:
+        """Test warning extraction with no warnings."""
+        output = """trailing-whitespace.................................................Passed
+end-of-file-fixer....................................................Passed
+"""
+        
+        warnings = _extract_warnings_and_info(output)
+        assert warnings == []
 
     def test_extract_summary_with_failures(self) -> None:
         """Test summary extraction with failures."""
@@ -68,10 +105,11 @@ check-yaml...........................................................Passed
 ruff.....................................................................Failed
 check-yaml...........................................................Passed
 """
-
+        
         summary = _extract_summary(output)
         assert summary["hooks_passed"] == 2
         assert summary["hooks_failed"] == 1
+        assert summary["hooks_skipped"] == 0
 
     def test_extract_failures_basic(self) -> None:
         """Test failure extraction from pre-commit output."""
@@ -168,6 +206,7 @@ class TestAsyncFunctions:
 
         assert result["status"] == "success"
         assert result["summary"]["hooks_passed"] == 1
+        assert result["summary"]["hooks_skipped"] == 0
         assert result["execution_time"] == 1.5
 
     @pytest.mark.asyncio
@@ -185,6 +224,7 @@ ruff.....................................................................Failed
         assert result["status"] == "hooks_failed"
         assert result["summary"]["hooks_passed"] == 1
         assert result["summary"]["hooks_failed"] == 1
+        assert result["summary"]["hooks_skipped"] == 0
         assert len(result["failures"]) > 0
         assert result["modified_files"] == ["src/main.py"]
 
@@ -203,26 +243,11 @@ class TestMainFunction:
     @pytest.mark.asyncio
     async def test_pre_commit_run_no_git_repo(self, temp_non_git_repo: Path) -> None:
         """Test pre_commit_run when not in git repository."""
-        result = await pre_commit_run(force_non_git=False)
-
+        result = await pre_commit_run()
+        
         assert result["status"] == "system_error"
-        assert "git repository" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_pre_commit_run_force_non_git(self, temp_non_git_repo: Path, precommit_config: str) -> None:
-        """Test pre_commit_run with force_non_git=True."""
-        # Create pre-commit config
-        config_file = temp_non_git_repo / ".pre-commit-config.yaml"
-        config_file.write_text(precommit_config)
-
-        # Mock the command execution
-        mock_result = {"returncode": 0, "stdout": "All hooks passed", "stderr": "", "timed_out": False}
-
-        with patch("pre_commit_mcp.tools._run_precommit_command", return_value=mock_result):
-            with patch("pre_commit_mcp.tools._get_modified_files", return_value=[]):
-                result = await pre_commit_run(force_non_git=True)
-
-        assert result["status"] == "success"
+        assert "Git repository not initialized" in result["error"]
+        assert "git init" in result["error"]
 
     @pytest.mark.asyncio
     async def test_pre_commit_run_no_config(self, temp_git_repo: Path) -> None:
